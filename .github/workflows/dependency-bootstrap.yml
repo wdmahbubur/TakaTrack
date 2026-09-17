@@ -1,0 +1,31 @@
+name: TakaTrack dependency verification
+on:
+  push:
+    branches: ['implementation/takatrack']
+    paths: ['package.json', '.github/workflows/dependency-bootstrap.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dependencies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install exact dependencies and produce lockfile
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Verify package installation
+        run: |
+          npm ls --depth=0
+          node node_modules/typescript/bin/tsc --version
+          node node_modules/next/dist/bin/next --version
+      - name: Package build dependencies for isolated verification runtime
+        run: tar -czf dependencies.tgz node_modules package.json package-lock.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: takatrack-build-dependencies
+          path: dependencies.tgz
+          retention-days: 2
