@@ -1,0 +1,50 @@
+name: TakaTrack checks
+on:
+  push:
+    branches: [master, implementation/takatrack]
+    paths: ["src/**", "tests/**", "scripts/**", "supabase/**", "package*.json", "README.md", "playwright.config.ts", "next.config.ts", "vercel.json"]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck && npm run lint && npm test
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.75.0
+      - name: Start isolated PostgreSQL and Auth
+        run: |
+          supabase start -x studio,imgproxy,logflare,vector,supavisor,edge-runtime
+          supabase status -o json > .test-supabase-status.json
+          node --experimental-strip-types scripts/setup-local-tests.ts
+      - name: Real Supabase integration tests
+        run: npm run test:integration
+      - name: Production build
+        run: npm run build
+      - name: Browser installation
+        run: npx playwright install --with-deps chromium
+      - name: Real Auth/CRUD, responsive and simulated audio browser checks
+        env:
+          E2E_ALLOW_MUTATIONS: isolated-test-project
+        run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: takatrack-verification
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+      - name: Stop disposable test stack
+        if: always()
+        run: supabase stop --no-backup || true
