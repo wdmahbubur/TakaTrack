@@ -1,93 +1,86 @@
-name: TakaTrack source delivery and verification
+name: TakaTrack source bootstrap
+
 on:
   push:
-    branches: [implementation/takatrack]
-    paths: ['.delivery/**', '.github/workflows/source-bootstrap.yml']
+    branches:
+      - implementation/takatrack
+    paths:
+      - ".github/workflows/source-bootstrap.yml"
   workflow_dispatch:
+
 permissions:
   contents: write
+
 jobs:
-  restore-and-verify:
+  restore-source:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout implementation branch
+        uses: actions/checkout@v4
         with:
           ref: implementation/takatrack
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Verify and restore source transport
+          fetch-depth: 0
+
+      - name: Reconstruct verified source archive
         shell: bash
         run: |
-          if [ -d .delivery ]; then
-            node <<'NODE'
-          const fs = require('node:fs');
-          const crypto = require('node:crypto');
-          const zlib = require('node:zlib');
-          const hashes = ['52bb54d8049a3ad55725839d0d89761fed845171f7b6002882c58fbd8b63656b','ff611b6b77c288e601a5fcdb0c82271535f3317d65567413dc127aae6537bd76','3b0b32aa72007266b4d3561ead76bf508ff87d0a627d8cfa56fa5e005d4e0209','207834e1275f747180f51adb0a1542b33c50d5aafa500f6940f59fa8eb54eb92','9e1c2324ee3c655f124f569a66243a3bf1ac0a18feb2a67b97ce139a02b36b08','81a630d0f7fe8b69acab67e466d0788dac530bb64d1f59de47c9f034c8c031b6','7e15ed6624be3c3ced4d7ba83f3140448a85db497ffed6173d55e1b7f056a3f4','0e67d9fe460ea1e6becd1cc9bf33e4d424a0df4140201310569275e741872d3d','7b8252075014f95af24838f9da0c78a8802c9b721390779afd8a7453354ca09b','986c31da0037f96e4ff7251254d914f2afd168d33262c2d774bad9fc1b656c57','623c475fcb4784df153c385f13b273b9c6ee2099753393d32c2900949f5f0b4b','7d0ae266945e6c0a80cc3c6199aba3bf0d37f2932e0289e81b52755b8773edb5'];
-          let encoded = '', failures = 0;
-          hashes.forEach((expected, i) => {
-            const file = `.delivery/source-${String(i + 1).padStart(2, '0')}.b64`;
-            const part = fs.readFileSync(file, 'utf8').trim();
-            if (crypto.createHash('sha256').update(part).digest('hex') !== expected) {
-              console.error(`Checksum mismatch: ${file}`); failures++;
-            }
-            encoded += part;
-          });
-          if (failures) process.exit(1);
-          const compressed = Buffer.from(encoded, 'base64');
-          if (crypto.createHash('sha256').update(compressed).digest('hex') !== '4d923a4507a2f15665c209c596e70d52495da6abce561780a2aa217a8509299f') throw Error('Archive checksum mismatch');
-          fs.writeFileSync('/tmp/takatrack-source.tar', zlib.brotliDecompressSync(compressed));
-          console.log('All 12 source checksums verified.');
-          NODE
-            python3 <<'PY'
-          import tarfile
-          from pathlib import PurePosixPath, Path
-          with tarfile.open('/tmp/takatrack-source.tar') as archive:
-              members = archive.getmembers()
-              assert len(members) == 112, 'Unexpected source count'
-              for member in members:
-                  p = PurePosixPath(member.name)
-                  assert not p.is_absolute() and '..' not in p.parts and member.isfile()
-                  assert not p.parts[0] in ('.git', '.github', 'node_modules', '.next', '.delivery')
-                  assert p.suffix not in ('.woff', '.woff2', '.ttf', '.otf')
-                  assert not p.name.startswith('.env') or p.name == '.env.example'
-              archive.extractall('.', filter='data')
-          p = Path('playwright.config.ts')
-          p.write_text(p.read_text().replace("trace:'retain-on-failure'", "trace:'off'"))
-          p = Path('scripts/ci.sh')
-          s = p.read_text().replace('studio,pgadmin,imgproxy', 'studio,imgproxy')
-          s = s.replace(' 2>&1 | tee verification-logs/supabase-start.log', ' > /tmp/takatrack-supabase-start.log 2>&1 || { echo "Disposable Supabase startup failed; private runner log withheld to avoid credential disclosure."; exit 1; }')
-          p.write_text(s)
-          PY
-            git rm -r .delivery
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add . ':!.github'
-            git commit -m 'Implement all eight TakaTrack pages, Supabase security, Gemini adapters and full test suites [skip ci]'
-            git push origin HEAD:implementation/takatrack
-          else
-            echo 'Source already restored; rerunning verification.'
-          fi
-      - uses: supabase/setup-cli@v2.1.1
-        with:
-          version: 2.84.2
-      - name: Run full verification against disposable local Supabase
-        run: bash scripts/ci.sh
-      - name: Upload verification evidence (no credentials or traces)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: takatrack-verification
-          retention-days: 7
-          if-no-files-found: warn
-          path: |
-            verification-logs/
-            test-results/
-            test-results-full/
-            playwright-report/
-            playwright-report-full/
-      - name: Stop disposable services
-        if: always()
-        run: supabase stop --no-backup || true
+          set -euo pipefail
+          cat .bootstrap/source-*.b64 > /tmp/takatrack-source.b64
+          base64 --decode /tmp/takatrack-source.b64 > /tmp/takatrack-source.tar.gz
+          echo "4b5fdce1f034b0e86cce23d9ec3856318a3a31a001ff6864d3a7f56ebdeb5692  /tmp/takatrack-source.tar.gz" | sha256sum -c -
+          tar -tzf /tmp/takatrack-source.tar.gz >/dev/null
+          tar -xzf /tmp/takatrack-source.tar.gz -C .
+
+      - name: Replace bootstrap artifacts with normal CI
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .bootstrap .delivery
+          rm -f .github/workflows/dependency-bootstrap.yml
+          rm -f .github/workflows/source-bootstrap.yml
+          mkdir -p .github/workflows
+          cat > .github/workflows/ci.yml <<'YAML'
+          name: TakaTrack CI
+
+          on:
+            push:
+              branches:
+                - master
+                - implementation/takatrack
+            pull_request:
+
+          permissions:
+            contents: read
+
+          jobs:
+            verify:
+              runs-on: ubuntu-latest
+              timeout-minutes: 25
+              steps:
+                - name: Checkout
+                  uses: actions/checkout@v4
+                - name: Setup Node
+                  uses: actions/setup-node@v4
+                  with:
+                    node-version: "22"
+                    cache: npm
+                - name: Install dependencies
+                  run: npm ci --no-audit --no-fund
+                - name: Typecheck, lint, unit, build, integration
+                  run: npm run check
+                - name: Install Chromium
+                  run: npx playwright install --with-deps chromium
+                - name: Responsive render tests
+                  run: npm run test:e2e
+          YAML
+
+      - name: Commit full application source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Complete TakaTrack application"
+          git push origin HEAD:implementation/takatrack
