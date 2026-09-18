@@ -3,15 +3,17 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.16.0" },
+  "engines": {
+    "node": ">=22.16.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit",
     "lint": "biome lint src tests scripts next.config.ts",
     "format": "biome format --write src tests scripts",
-    "test": "node --experimental-strip-types --test tests/unit/*.test.ts",
+    "test": "node --conditions=react-server --experimental-strip-types --test tests/unit/*.test.ts",
     "test:integration": "node --experimental-strip-types --test tests/integration/*.test.ts",
     "test:e2e": "playwright test",
     "test:visual": "playwright test tests/e2e/visual.spec.ts",

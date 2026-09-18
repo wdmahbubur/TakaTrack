@@ -1,0 +1,16 @@
+node_modules/
+.next/
+out/
+.env*
+!.env.example
+*.tsbuildinfo
+playwright-report/
+test-results/
+.vercel/
+.auth/
+*.tgz
+.DS_Store
+verification-logs/
+test-results-full/
+playwright-report-full/
+.delivery/
